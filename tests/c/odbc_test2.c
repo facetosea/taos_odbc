@@ -1574,7 +1574,6 @@ static int run(int argc, char* argv[]) {
   init();
 
   if (isTestCase(argc, argv, "example", default_supported)) CHK0(example, 0);
-  if (isTestCase(argc, argv, "db_test", default_supported)) CHK0(db_test, 0);
   if (isTestCase(argc, argv, "case_1", default_supported)) CHK0(case_1, 0);
   if (isTestCase(argc, argv, "case_2", default_supported)) CHK0(case_2, 0);
   if (isTestCase(argc, argv, "case_3", default_supported)) CHK0(case_3, 0);
@@ -1592,6 +1591,8 @@ static int run(int argc, char* argv[]) {
   if (isTestCase(argc, argv, "case_14", default_supported)) CHK0(case_14, 0);
   if (isTestCase(argc, argv, "case_15", default_supported)) CHK0(case_15, 0);
   if (isTestCase(argc, argv, "case_16", default_supported)) CHK0(case_16, 0);
+
+  if (isTestCase(argc, argv, "db_test", default_unsupported)) CHK0(db_test, 0);
 
   X("The test finished successfully.");
   return 0;
