@@ -1501,8 +1501,6 @@ static int example() {
   SQLHANDLE hdbc = SQL_NULL_HANDLE;
   SQLHANDLE hstmt = SQL_NULL_HANDLE;
 
-  SQLRETURN sr = SQL_SUCCESS;
-
   SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &henv);
   SQLSetEnvAttr(henv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0);
   SQLSetEnvAttr(henv, SQL_ATTR_CONNECTION_POOLING, (SQLPOINTER)SQL_CP_ONE_PER_DRIVER, 0);
@@ -1514,9 +1512,9 @@ static int example() {
   SQLSMALLINT StringLength2 = 0;
  
   char* conn_str = "DSN=TAOS_ODBC_DSN; server=127.0.0.1:6030; uid=root; pwd=taosdata; db=meter";
-  sr = SQLDriverConnect(hdbc,
+  SQLDriverConnect(hdbc,
                    NULL,
-                   conn_str,
+                   (SQLCHAR*)conn_str,
                    (SQLSMALLINT)strlen(conn_str),
                    OutConnectionString,
                    sizeof(OutConnectionString),
