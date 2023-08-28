@@ -1597,15 +1597,17 @@ static int example() {
 
   SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt);
 
+  char* create_stable = "CREATE TABLE `meters` (`ts` TIMESTAMP, `current` FLOAT, `voltage` INT, `phase` FLOAT) \
+         TAGS (`groupid` INT, `location` BINARY(24))";
+  SQLExecDirect(hstmt, (SQLCHAR*)create_stable, SQL_NTS);
+
   // create test table
-  char* my_table = "my_table";
-  char create_table_sql[256];
-  sprintf(create_table_sql, "CREATE TABLE if not exists %s (`ts` TIMESTAMP, `double_val` DOUBLE, `int_val` INT)", my_table);
+  char* create_table_sql = "CREATE TABLE `d0` USING `meters` TAGS(0, 'California.LosAngles')";
   SQLExecDirect(hstmt, (SQLCHAR*)create_table_sql, SQL_NTS);
  
   // write data into test table
   char insert_sql[256];
-  sprintf(insert_sql, "insert into %s (ts, double_val, int_val) values (now(), 100.0, 1)", my_table);
+  sprintf(insert_sql, "INSERT INTO `d0` values(now - 10s, 10, 116, 0.32)");
   SQLExecDirect(hstmt, (SQLCHAR*)insert_sql, SQL_NTS);
   SQLLEN numberOfrows;
   SQLRowCount(hstmt, &numberOfrows);
@@ -1616,7 +1618,7 @@ static int example() {
 
   // read data from table
   char select_sql[256];
-  sprintf(select_sql, "select ts, double_val, int_val from %s", my_table);
+  sprintf(select_sql, "select ts, current, voltage from d0");
   SQLExecDirect(hstmt, (SQLCHAR*)select_sql, SQL_NTS);
 
   int row = 0;
