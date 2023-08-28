@@ -1485,6 +1485,80 @@ static int case_16(void) {
   return 0;
 }
 
+static int case_17(void) {
+  CHK0(create_sql_connect, 0);
+  CHK1(use_db, test_db, 0);
+
+  char sql[1024];
+  sql[0] = '\0';
+  strcpy(sql, "DROP STABLE IF EXISTS `stable1`");
+  CHK1(exec_sql, sql, 0);
+
+  sql[0] = '\0';
+  strcpy(sql, "CREATE STABLE `stable1` (`ts` TIMESTAMP, `double_val` DOUBLE, `int_val` INT, `unint_val` INT UNSIGNED, `bigint_val` BIGINT, `unbigint_val` BIGINT UNSIGNED, `unsmallint_val` SMALLINT UNSIGNED, `tinyint_val` TINYINT, `untinyint_val` TINYINT UNSIGNED,                                             \
+                                        `bool_val` BOOL, `nchar100_val` NCHAR(100), `float_val` FLOAT, `binary_val` BINARY(100), `smallint_val` SMALLINT, `vchar100_val` VARCHAR(100)) TAGS(`element_id` NCHAR(100), `location` NCHAR(100))");
+  CHK1(exec_sql, sql, 0);
+
+  sql[0] = '\0';
+  strcpy(sql, "CREATE TABLE tytb1 using stable1 TAGS ('00001', 'location_001')");
+  CHK1(exec_sql, sql, 0);
+  sql[0] = '\0';
+  strcpy(sql, "CREATE TABLE tytb2 using stable1 TAGS ('00002', 'location_002')");
+  CHK1(exec_sql, sql, 0);
+  sql[0] = '\0';
+  strcpy(sql, "CREATE TABLE tytb3 using stable1 TAGS ('00003', 'location_003')");
+  CHK1(exec_sql, sql, 0);
+
+  X("\n stable1:column:");
+  show_columns1("stable1");
+
+  X("\n tytb1:column:");
+  show_columns2("tytb1");
+
+  const int insert_count = 10;
+  for (int i = 0; i < insert_count; i++) {
+    sql[0] = '\0';
+    sprintf(sql, "insert into tytb1 (ts, double_val, int_val, unint_val, bigint_val, unbigint_val,      \
+                                     unsmallint_val,  tinyint_val, untinyint_val, bool_val, nchar100_val, \
+                                     float_val, binary_val, smallint_val, vchar100_val )         \
+                                     values (now(), %f, %d, %u, %ld, %u ,                            \
+                                     %d, %d, %u, true, \'%s\', %f, \'%s\', %d, \'%s\' )",                            \
+                                     100.0 + i, -i, i, -1000000-i, 10000000 + i, \
+                                     i, -i, i, "test",  100.0 + i, "binary", i, "vchartest");
+    CHK1(exec_sql, sql, 0);
+    sql[0] = '\0';
+    sprintf(sql, "insert into tytb2 (ts, double_val, int_val, unint_val, bigint_val, unbigint_val,      \
+                                     unsmallint_val,  tinyint_val, untinyint_val, bool_val, nchar100_val, \
+                                     float_val, binary_val, smallint_val, vchar100_val )         \
+                                     values (now(), %f, %d, %u, %ld, %u ,                            \
+                                     %d, %d, %u, true, \'%s\', %f, \'%s\', %d, \'%s\' )", \
+                                     100.0 + i, -i, i, -1000000 - i, 10000000 + i, \
+                                     i, -i, i, "test", 100.0 + i, "binary", i, "vchartest");
+    CHK1(exec_sql, sql, 0);
+    sql[0] = '\0';
+    sprintf(sql, "insert into tytb3 (ts, double_val, int_val, unint_val, bigint_val, unbigint_val,      \
+                                     unsmallint_val,  tinyint_val, untinyint_val, bool_val, nchar100_val, \
+                                     float_val, binary_val, smallint_val, vchar100_val )         \
+                                     values (now(), %f, %d, %u, %ld, %u ,                            \
+                                     %d, %d, %u, true, \'%s\', %f, \'%s\', %d, \'%s\' )", \
+                                     100.0 + i, -i, i, -1000000 - i, 10000000 + i, \
+                                     i, -i, i, "test", 100.0 + i, "binary", i, "vchartest");
+    CHK1(exec_sql, sql, 0);
+    tsleep(2);
+  }
+
+
+
+  X("\n tytb1:data:");
+  show_table_data("tytb1");
+
+  X("\n stable1:data:");
+  show_table_data("stable1");
+
+  CHK0(free_connect, 0);
+  return 0;
+}
+
 static const int default_supported = 1;
 static const int default_unsupported = 2;
 static bool isTestCase(int argc, char* argv[], const char* test_case, const int support) {
@@ -1591,6 +1665,7 @@ static int run(int argc, char* argv[]) {
   if (isTestCase(argc, argv, "case_14", default_supported)) CHK0(case_14, 0);
   if (isTestCase(argc, argv, "case_15", default_supported)) CHK0(case_15, 0);
   if (isTestCase(argc, argv, "case_16", default_supported)) CHK0(case_16, 0);
+  if (isTestCase(argc, argv, "case_17", default_supported)) CHK0(case_17, 0);
 
   if (isTestCase(argc, argv, "db_test", default_unsupported)) CHK0(db_test, 0);
 
