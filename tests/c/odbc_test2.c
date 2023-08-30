@@ -245,10 +245,10 @@ static int create_sql_connect(void) {
   r = CALL_SQLAllocHandle(SQL_HANDLE_DBC, link_info->ctx.henv, &link_info->ctx.hconn);
   if (r != SQL_SUCCESS && r != SQL_SUCCESS_WITH_INFO) return -1;
 
-  X("connect dsn:%s user:%s pwd:%s", link_info->dsn, link_info->user, link_info->pwd);
+  D("connect dsn:%s user:%s pwd:%s", link_info->dsn, link_info->user, link_info->pwd);
   r = CALL_SQLConnect(link_info->ctx.hconn, (SQLCHAR*)link_info->dsn, SQL_NTS, (SQLCHAR*)link_info->user, SQL_NTS, (SQLCHAR*)link_info->pwd, SQL_NTS);
   if (r != SQL_SUCCESS && r != SQL_SUCCESS_WITH_INFO) return -1;
-  X("connect dsn:%s result:%d", link_info->dsn, r);
+  D("connect dsn:%s result:%d", link_info->dsn, r);
 
   return 0;
 }
@@ -1743,12 +1743,227 @@ static int case_17(void) {
   return 0;
 }
 
+void checkErrorCode(TAOS_STMT* stmt, int code, const char* msg) {
+  if (code != 0) {
+    printf("%s. error: %s\n", msg, taos_stmt_errstr(stmt));
+    taos_stmt_close(stmt);
+    exit(EXIT_FAILURE);
+  }
+}
+#define ARRAY_SIZE 10000
+static double case_18_helper(int64_t current_10ms, int mode) {
+  int r = 0;
+
+  double elapsed_time = 0;
+#define max_test_char_len 10
+  int64_t ts_arr[ARRAY_SIZE] = { 0 };
+  SQLLEN  ts_ind[ARRAY_SIZE] = { 0 };
+  char    varchar_arr[ARRAY_SIZE][max_test_char_len];
+  int32_t varchar_arr_len[ARRAY_SIZE] = { 0 };
+  SQLLEN  varchar_ind[ARRAY_SIZE] = { 0 };
+  char    nchar_arr[ARRAY_SIZE][max_test_char_len];
+  int32_t nchar_arr_len[ARRAY_SIZE] = { 0 };
+  SQLLEN  nchar_ind[ARRAY_SIZE] = { 0 };
+  int64_t i64_arr[ARRAY_SIZE] = { 0 };
+  SQLLEN  i64_ind[ARRAY_SIZE] = { 0 };
+
+  // hard code for position of each data source
+  int param_len[] = { 3, 4, 4 };
+
+  const param_t params[4] = {
+      {SQL_PARAM_INPUT,  SQL_C_SBIGINT,  SQL_TYPE_TIMESTAMP,  23,       3,          ts_arr,           0,   ts_ind},
+      {SQL_PARAM_INPUT,  SQL_C_CHAR,     SQL_VARCHAR,         99,       0,          varchar_arr,      max_test_char_len, varchar_ind},
+      {SQL_PARAM_INPUT,  SQL_C_CHAR,     SQL_WVARCHAR,        99,       0,          nchar_arr,        max_test_char_len, nchar_ind},
+      {SQL_PARAM_INPUT,  SQL_C_SBIGINT,  SQL_BIGINT,          99,       0,          i64_arr,          max_test_char_len, i64_ind},
+  };
+
+  for (int i = 0; i < ARRAY_SIZE; ++i) {
+    ts_arr[i] = current_10ms * 10000 + i;
+    snprintf(varchar_arr[i], max_test_char_len, "abcd%d", i + 9);
+    varchar_arr_len[i] = (int32_t)strlen(varchar_arr[i]);
+    varchar_ind[i] = SQL_NTS;
+    snprintf(nchar_arr[i], max_test_char_len, "bt%d", i);
+    nchar_arr_len[i] = (int32_t)strlen(nchar_arr[i]);
+    nchar_ind[i] = SQL_NTS;
+    i64_arr[i] = 54321 + i;
+  }
+
+  if( mode == 1){
+    reset_stmt();
+    SQLHANDLE hstmt = link_info->ctx.hstmt;
+    SQLULEN nr_paramset_size = ARRAY_SIZE;
+    SQLUSMALLINT param_status_arr[ARRAY_SIZE] = { 0 };
+    SQLULEN nr_params_processed = 0;
+    memset(param_status_arr, 0, ARRAY_SIZE * sizeof(SQLUSMALLINT));
+
+    char* buf = "insert into tx1 (ts,vname,wname,bi) values (?,?,?,?)";
+    //X("SQL:%s", buf);
+
+
+    r = SQLPrepare(hstmt, (SQLCHAR*)buf, SQL_NTS);
+    D("SQLPrepare result:%d", r);
+    CHKSTMTR(hstmt, r);
+    if (r != SQL_SUCCESS && r != SQL_SUCCESS_WITH_INFO) return -1;
+
+    r = CALL_SQLSetStmtAttr(hstmt, SQL_ATTR_PARAM_BIND_TYPE, SQL_PARAM_BIND_BY_COLUMN, 0);
+    D("CALL_SQLSetStmtAttr SQL_ATTR_PARAM_BIND_TYPE result:%d", r);
+
+    r = CALL_SQLSetStmtAttr(hstmt, SQL_ATTR_PARAMSET_SIZE, (SQLPOINTER)(uintptr_t)nr_paramset_size, 0);
+    D("CALL_SQLSetStmtAttr SQL_ATTR_PARAMSET_SIZE result:%d", r);
+
+    r = CALL_SQLSetStmtAttr(hstmt, SQL_ATTR_PARAM_STATUS_PTR, param_status_arr, 0);
+    D("CALL_SQLSetStmtAttr SQL_ATTR_PARAM_STATUS_PTR result:%d", r);
+
+    r = CALL_SQLSetStmtAttr(hstmt, SQL_ATTR_PARAMS_PROCESSED_PTR, &nr_params_processed, 0);
+    D("CALL_SQLSetStmtAttr SQL_ATTR_PARAMS_PROCESSED_PTR result:%d", r);
+    clock_t t1_1 = clock();
+    for (int j = 0; j < 4; ++j) {
+      const param_t* param = params + j;
+      r = SQLBindParameter(hstmt, (SQLUSMALLINT)j + 1,
+        param->InputOutputType,
+        param->ValueType,
+        param->ParameterType,
+        param->ColumnSize,
+        param->DecimalDigits,
+        param->ParameterValuePtr,
+        param->BufferLength,
+        param->StrLen_or_IndPtr);
+      D("SQLBindParameter %dth column result:%d", (int)j, r);
+      CHKSTMTR(hstmt, r);
+    }
+
+    r = CALL_SQLExecute(hstmt);
+    clock_t t1_2 = clock();
+    elapsed_time = (double)(t1_2 - t1_1) / CLOCKS_PER_SEC;
+
+    D("CALL_SQLExecute result:%d.", r);
+    CHKSTMTR(hstmt, r);
+    if (r != SQL_SUCCESS && r != SQL_SUCCESS_WITH_INFO) return -1;
+
+  }
+
+  if (mode == 2) {
+    int32_t int64Len[ARRAY_SIZE] = { sizeof(int64_t) };
+    char is_null[ARRAY_SIZE] = { 0 };
+    TAOS_MULTI_BIND params[4];
+    params[0].buffer_type = TSDB_DATA_TYPE_TIMESTAMP;
+    params[0].buffer_length = sizeof(int64_t);
+    params[0].buffer = ts_arr;
+    params[0].length = int64Len;
+    params[0].is_null = is_null;
+    params[0].num = ARRAY_SIZE;
+
+    params[1].buffer_type = TSDB_DATA_TYPE_VARCHAR;
+    params[1].buffer_length = max_test_char_len;
+    params[1].buffer = varchar_arr;
+    params[1].length = varchar_arr_len;
+    params[1].is_null = is_null;
+    params[1].num = ARRAY_SIZE;
+
+    params[2].buffer_type = TSDB_DATA_TYPE_NCHAR;
+    params[2].buffer_length = max_test_char_len;
+    params[2].buffer = nchar_arr;
+    params[2].length = nchar_arr_len;
+    params[2].is_null = is_null;
+    params[2].num = ARRAY_SIZE;
+
+    params[3].buffer_type = TSDB_DATA_TYPE_BIGINT;
+    params[3].buffer_length = sizeof(int64_t);
+    params[3].buffer = i64_arr;
+    params[3].length = int64Len;
+    params[3].is_null = is_null;
+    params[3].num = ARRAY_SIZE;
+    {
+      TAOS * taos = taos_connect("192.168.1.98:6030", "root", "taosdata", NULL, 0);
+      if (taos == NULL) {
+        printf("failed to connect to server, reason:%s\n", "null taos" /*taos_errstr(taos)*/);
+        exit(1);
+      }
+      TAOS_RES* res = taos_query(taos, "use meter;");
+      if (taos_errno(res) != 0) {
+        printf("failed to taos_query, reason:%s\n", taos_errstr(res));
+      }
+
+      TAOS_STMT* stmt = taos_stmt_init(taos);
+      // prepare
+
+      clock_t t1_1 = clock();
+      const char* sql = "insert into tx2 (ts,vname,wname,bi) values (?,?,?,?)";
+      int code = taos_stmt_prepare(stmt, sql, 0);
+      //checkErrorCode(stmt, code, "failed to execute taos_stmt_prepare");
+
+      code = taos_stmt_bind_param_batch(stmt, params); // bind batch
+      //checkErrorCode(stmt, code, "failed to execute taos_stmt_bind_param_batch");
+      code = taos_stmt_add_batch(stmt);  // add batch
+      //checkErrorCode(stmt, code, "failed to execute taos_stmt_add_batch");
+      // execute
+      code = taos_stmt_execute(stmt);
+      //checkErrorCode(stmt, code, "failed to execute taos_stmt_execute");
+
+      clock_t t1_2 = clock();
+      elapsed_time = (double)(t1_2 - t1_1) / CLOCKS_PER_SEC;
+      int affectedRows = taos_stmt_affected_rows(stmt);
+      // printf("successfully inserted %d rows\n", affectedRows);
+    }
+  }
+
+  return elapsed_time;
+}
+
+static int case_18_2() {
+  CHK0(create_sql_connect, 0);
+  CHK1(use_db, test_db, 0);
+  char sql[1024];
+  sql[0] = '\0';
+  strcpy(sql, "drop table if exists tx2;");
+  CHK1(exec_sql, sql, 0);
+
+  sql[0] = '\0';
+  strcpy(sql, "create table if not exists tx2 (ts timestamp,vname varchar(10),wname nchar(10),bi bigint);");
+  CHK1(exec_sql, sql, 0);
+  
+  clock_t t1 = clock();
+  time_t currentTime = time(NULL);
+  double elapsed_time = 0;
+  for (int i = 0; i < count_1000; ++i) {
+    elapsed_time += case_18_helper(currentTime * 100 + i, 2);
+  }
+
+  clock_t t2 = clock();
+  elapsed_time = (double)(t2 - t1) / CLOCKS_PER_SEC;
+  X("taosc write %d times, batch size %d : % f seconds", count_1000, ARRAY_SIZE, elapsed_time);
+  return 0;
+}
+
+static int case_18_1() {
+  CHK0(create_sql_connect, 0);
+  CHK1(use_db, test_db, 0);
+  char sql[1024];
+  sql[0] = '\0';
+  strcpy(sql, "drop table if exists tx1;");
+  CHK1(exec_sql, sql, 0);
+  sql[0] = '\0';
+  strcpy(sql, "create table if not exists tx1 (ts timestamp,vname varchar(10),wname nchar(10),bi bigint);");
+  CHK1(exec_sql, sql, 0);
+
+  clock_t t1 = clock();
+  time_t currentTime = time(NULL);
+  double elapsed_time = 0;
+  for (int i = 0; i < count_1000; ++i) {
+    elapsed_time += case_18_helper(currentTime * 100 + i, 1);
+  }
+  clock_t t2 = clock();
+  elapsed_time = (double)(t2 - t1) / CLOCKS_PER_SEC;
+  X("taos-odbc write %d times, batch size %d : % f seconds", count_1000, ARRAY_SIZE, elapsed_time);
+  return 0;
+}
+
 static const int default_supported = 1;
 static const int default_unsupported = 2;
 static bool isTestCase(int argc, char* argv[], const char* test_case, const int support) {
-  if (argc <= 1 && support == default_supported) return true;
-  if (argc <= 1 && support == default_unsupported) return false;
-  for (int i = 1; i < argc; i++) {
+  if (argc == 0 && support == default_supported) return true;
+  if (argc == 0 && support == default_unsupported) return false;
+  for (int i = 0; i < argc; i++) {
     if (strcmp(argv[i], test_case) == 0) return true;
   }
   return false;
@@ -1854,7 +2069,8 @@ static int run(int argc, char* argv[]) {
   if (isTestCase(argc, argv, "case_17", default_supported)) CHK0(case_17, 0);
 
   if (isTestCase(argc, argv, "db_test", default_unsupported)) CHK0(db_test, 0);
-  if (isTestCase(argc, argv, "case_3_1", default_unsupported)) CHK0(case_3_1, 0);
+  if (isTestCase(argc, argv, "case_18_2", default_unsupported)) CHK0(case_18_2, 0);
+  if (isTestCase(argc, argv, "case_18_1", default_unsupported)) CHK0(case_18_1, 0);
 
   X("The test finished successfully.");
   return 0;

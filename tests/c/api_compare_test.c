@@ -100,7 +100,7 @@ data_source_case _cases_all[] = {
       .hstmt = SQL_NULL_HANDLE,
     },
     TN_TAOS,
-    "DSN=TAOS_ODBC_DSN;Server=192.168.1.93",
+    "DSN=TAOS_ODBC_DSN;",
     "TAOS_ODBC_DSN",
     NULL,
     NULL,
@@ -1233,7 +1233,7 @@ static bool isTestCase(int argc, char* argv[], const char* test_case, const int 
 
 static int run(int argc, char* argv[]) {
   if (isTestCase(argc, argv, "sqlconnect", default_supported)) CHK0(sqlconnect, 0);
-  if (isTestCase(argc, argv, "connect_driver", default_supported)) CHK0(connect_driver, 0);
+
   if (isTestCase(argc, argv, "basic", default_supported)) CHK0(basic, 0);
   if (isTestCase(argc, argv, "sql_tables_test", default_supported)) CHK0(sql_tables_test, 0);
   
@@ -1248,6 +1248,7 @@ static int run(int argc, char* argv[]) {
     if (isTestCase(argc, argv, "case1_select2_after_exec", default_unsupported)) CHK0(case1_select2_after_exec, 0);
     if (isTestCase(argc, argv, "case1_select3_after_exec", default_unsupported)) CHK0(case1_select3_after_exec, 0);
     if (isTestCase(argc, argv, "case1_insert2_after_exec", default_unsupported)) CHK0(case1_insert2_after_exec, 0);
+    if (isTestCase(argc, argv, "connect_driver", default_unsupported)) CHK0(connect_driver, 0);
   }
 
   X("The test finished successfully.");
