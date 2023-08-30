@@ -264,6 +264,8 @@ endif()
 add_test(NAME odbc_test2
     COMMAND odbc_test2)
 
+target_link_libraries(odbc_test2 taos)
+
 if(HAVE_VALGRIND)
 add_test(NAME Vodbc_test2
     COMMAND ${CMAKE_SOURCE_DIR}/sh/valgrind.sh ${CMAKE_CURRENT_BINARY_DIR}/odbc_test2)

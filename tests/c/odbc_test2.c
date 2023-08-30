@@ -1249,15 +1249,18 @@ static int check_t_table() {
 static int case_3(void) {
   CHK0(create_sql_connect, 0);
   CHK1(use_db, test_db, 0);
+  CHK1(exec_sql, "drop table if EXISTS t_table;", 0);
   CHK0(check_t_table, 0);
 
   char sql[100 + count_1000 * 64];
   sql[0] = '\0';
 
-  clock_t t1 = clock();
+  CHK0(reset_stmt, 0);
+
+  double cost = 0;
   time_t current_time = time(NULL);
 
-  for (int num = 0; num < count_100; num++) {
+  for (int num = 0; num < count_1000; num++) {
     sql[0] = '\0';
     sprintf(sql, "insert into t_table (ts, double_val, int_val) values ");
     char val[64];
@@ -1267,25 +1270,206 @@ static int case_3(void) {
       sprintf(val, " ("SQLLEN_FORMAT", %d, 0)", current_time * 1000 + num * count_1000 + i, 100 + i);
       strcat(sql, val);
     }
-    CHK1(exec_sql, sql, 0);
 
-    SQLLEN numberOfrows;
-    CALL_SQLRowCount(link_info->ctx.hstmt, &numberOfrows);
-    X("insert into t_table count: "SQLLEN_FORMAT"", numberOfrows);
+    clock_t t1_1 = clock();
+    int r = SQLExecDirect(link_info->ctx.hstmt, (SQLCHAR*)sql, SQL_NTS);
+    if (r != SQL_SUCCESS && r != SQL_SUCCESS_WITH_INFO) {
+      CHKSTMTR(link_info->ctx.hstmt, r);
+      return -1;
+    }
+    clock_t t1_2 = clock();
+    double elapsed_time = (double)(t1_2 - t1_1) / CLOCKS_PER_SEC;
+    D("SQLExecDirect, cost time : % f seconds", elapsed_time);
+    cost += elapsed_time;
   }
 
+  X("Write %d * %d rows data, cost time : % f seconds", count_1000, count_1000, cost);
 
-  clock_t t2 = clock();
-  double elapsed_time = (double)(t2 - t1) / CLOCKS_PER_SEC;
-  X("Write %d * %d rows data, cost time : % f seconds", count_100, count_1000, elapsed_time);
-
+  clock_t t2_1 = clock();
   int counts = show_table_data("t_table");
-
-  clock_t t3 = clock();
-  elapsed_time = (double)(t3 - t2) / CLOCKS_PER_SEC;
-  X("Read %d rows data, cost time: %f seconds", counts, elapsed_time);
+  clock_t t2_2 = clock();
+  double elapsed_time = (double)(t2_2 - t2_1) / CLOCKS_PER_SEC;
+  X("read %d rows data, cost time : % f seconds", counts, elapsed_time);
 
   CHK0(free_connect, 0);
+  return 0;
+}
+
+#define GET_FLOAT_VAL(x) (*(float *)(x))
+#define GET_DOUBLE_VAL(x) (*(double *)(x))
+
+typedef uint16_t VarDataLenT;
+#define varDataLen(v) ((VarDataLenT *)(v))[0]
+
+#define VARSTR_HEADER_SIZE sizeof(VarDataLenT)
+int printRow(int row_num, char* str, TAOS_ROW row, TAOS_FIELD* fields, int numFields) {
+  int  len = 0;
+  char split = ' ';
+
+  for (int i = 0; i < numFields; ++i) {
+    if (i > 0) {
+      str[len++] = split;
+    }
+
+    if (row[i] == NULL) {
+      len += sprintf(str + len, "%s", "NULL");
+      continue;
+    }
+
+    switch (fields[i].type) {
+    case TSDB_DATA_TYPE_TINYINT:
+      len += sprintf(str + len, "%d", *((int8_t*)row[i]));
+      break;
+
+    case TSDB_DATA_TYPE_UTINYINT:
+      len += sprintf(str + len, "%u", *((uint8_t*)row[i]));
+      break;
+
+    case TSDB_DATA_TYPE_SMALLINT:
+      len += sprintf(str + len, "%d", *((int16_t*)row[i]));
+      break;
+
+    case TSDB_DATA_TYPE_USMALLINT:
+      len += sprintf(str + len, "%u", *((uint16_t*)row[i]));
+      break;
+
+    case TSDB_DATA_TYPE_INT:
+      len += sprintf(str + len, "%d", *((int32_t*)row[i]));
+      break;
+
+    case TSDB_DATA_TYPE_UINT:
+      len += sprintf(str + len, "%u", *((uint32_t*)row[i]));
+      break;
+
+    case TSDB_DATA_TYPE_BIGINT:
+      len += sprintf(str + len, "%" PRId64, *((int64_t*)row[i]));
+      break;
+
+    case TSDB_DATA_TYPE_UBIGINT:
+      len += sprintf(str + len, "%" PRIu64, *((uint64_t*)row[i]));
+      break;
+
+    case TSDB_DATA_TYPE_FLOAT: {
+      float fv = 0;
+      fv = GET_FLOAT_VAL(row[i]);
+      len += sprintf(str + len, "%f", fv);
+    } break;
+
+    case TSDB_DATA_TYPE_DOUBLE: {
+      double dv = 0;
+      dv = GET_DOUBLE_VAL(row[i]);
+      len += sprintf(str + len, "%lf", dv);
+    } break;
+
+    case TSDB_DATA_TYPE_BINARY:
+    case TSDB_DATA_TYPE_NCHAR:
+    case TSDB_DATA_TYPE_GEOMETRY: {
+      int32_t charLen = varDataLen((char*)row[i] - VARSTR_HEADER_SIZE);
+      memcpy(str + len, row[i], charLen);
+      len += charLen;
+    } break;
+
+    case TSDB_DATA_TYPE_TIMESTAMP:
+      len += sprintf(str + len, "%" PRId64, *((int64_t*)row[i]));
+      break;
+
+    case TSDB_DATA_TYPE_BOOL:
+      len += sprintf(str + len, "%d", *((int8_t*)row[i]));
+    default:
+      break;
+    }
+    D("Row:%d Column %d: %s", row_num, i, str);
+  }
+
+  return len;
+}
+static int print_result_taos(TAOS_RES* res) {
+  int         numFields = taos_num_fields(res);
+  TAOS_FIELD* fields = taos_fetch_fields(res);
+  char        header[256] = { 0 };
+  int len = 0;
+  for (int i = 0; i < numFields; ++i) {
+    len += sprintf(header + len, "%s ", fields[i].name);
+  }
+
+  TAOS_ROW row = NULL;
+  int row_num = 0;
+  while ((row = taos_fetch_row(res))) {
+    char temp[256] = { 0 };
+    printRow(row_num, temp, row, fields, numFields);
+    ++row_num;
+  }
+  return row_num;
+}
+
+static int case_3_1(void) {
+  TAOS* taos = taos_connect("192.168.1.98:6030", "root", "taosdata", NULL, 0);
+  if (taos == NULL) {
+    printf("failed to connect to server, reason:%s\n", "null taos" /*taos_errstr(taos)*/);
+    exit(1);
+  }
+  TAOS_RES* res = taos_query(taos, "use meter;");
+  if (taos_errno(res) != 0) {
+    printf("failed to taos_query, reason:%s\n", taos_errstr(res));
+  }
+
+  char* drop_sql = "drop TABLE if EXISTS `t_table2`;";
+  res = taos_query(taos, drop_sql);
+  if (taos_errno(res) != 0) {
+    printf("failed to taos_query, reason:%s\n", taos_errstr(res));
+  }
+
+  char* create_sql = "CREATE TABLE if not exists `t_table2` (`ts` TIMESTAMP, `double_val` DOUBLE, `int_val` INT)";
+  res = taos_query(taos, create_sql);
+  if (taos_errno(res) != 0) {
+    printf("failed to taos_query, reason:%s\n", taos_errstr(res));
+  }
+
+  // TAOS_STMT* stmt = taos_stmt_init( taos);
+
+  char sql[100 + count_1000 * 64];
+  sql[0] = '\0';
+
+  double cost = 0;
+  time_t current_time = time(NULL);
+
+  for (int num = 0; num < count_1000; num++) {
+    sql[0] = '\0';
+    sprintf(sql, "insert into t_table2 (ts, double_val, int_val) values ");
+    char val[64];
+
+    for (int i = 0; i < count_1000; i++) {
+      val[0] = '\0';
+      sprintf(val, " ("SQLLEN_FORMAT", %d, 0)", current_time * 1000 + num * count_1000 + i, 100 + i);
+      strcat(sql, val);
+    }
+    clock_t t1_1 = clock();
+    res = taos_query(taos, sql);
+    if (taos_errno(res) != 0) {
+      printf("failed to taos_query, reason:%s\n", taos_errstr(res));
+    }
+    clock_t t1_2 = clock();
+    double elapsed_time = (double)(t1_2 - t1_1) / CLOCKS_PER_SEC;
+    D("taos_query for write, cost time : % f seconds",  elapsed_time);
+    cost += elapsed_time;
+  }
+  X("Write %d * %d rows data, cost time : % f seconds", count_1000, count_1000, cost);
+
+  char* select_sql = "select * from `t_table2`;";
+
+  clock_t t2_1 = clock();
+  res = taos_query(taos, select_sql);
+  if (taos_errno(res) != 0) {
+    printf("failed to execute taos_query. error: %s\n", taos_errstr(res));
+    exit(EXIT_FAILURE);
+  }
+  int read_count = print_result_taos(res);
+  clock_t t2_2 = clock();
+  double elapsed_time = (double)(t2_2 - t2_1) / CLOCKS_PER_SEC;
+  X("read %d rows, cost time : % f seconds", read_count, elapsed_time);
+
+  taos_close(taos);
+  taos_cleanup();
   return 0;
 }
 
@@ -1670,6 +1854,7 @@ static int run(int argc, char* argv[]) {
   if (isTestCase(argc, argv, "case_17", default_supported)) CHK0(case_17, 0);
 
   if (isTestCase(argc, argv, "db_test", default_unsupported)) CHK0(db_test, 0);
+  if (isTestCase(argc, argv, "case_3_1", default_unsupported)) CHK0(case_3_1, 0);
 
   X("The test finished successfully.");
   return 0;
