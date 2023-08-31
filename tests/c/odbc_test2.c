@@ -341,6 +341,7 @@ static int create_database(char* db) {
   memset(sql, 0, sizeof(sql));
   strcat(sql, "create database if not exists ");
   strcat(sql, db);
+  strcat(sql, " precision 'us'");
   CHK1(exec_sql, sql, 0);
   X("create database %s finished", db);
   return 0;
@@ -526,10 +527,10 @@ static int show_table_data(char* table_name) {
     for (int i = 1; i <= numberOfColumns; i++) {
       CALL_SQLGetData(hstmt, i, SQL_C_CHAR, columnData, sizeof(columnData), &indicator);
       if (indicator == SQL_NULL_DATA) {
-        D("Row:%d Column %d: NULL", row, i);
+        X("Row:%d Column %d: NULL", row, i);
       }
       else {
-        D("Row:%d Column %d: %s", row, i, columnData);
+        X("Row:%d Column %d: %s", row, i, columnData);
       }
     }
   }
@@ -1705,27 +1706,27 @@ static int case_17(void) {
     sprintf(sql, "insert into tytb1 (ts, double_val, int_val, unint_val, bigint_val, unbigint_val,      \
                                      unsmallint_val,  tinyint_val, untinyint_val, bool_val, nchar100_val, \
                                      float_val, binary_val, smallint_val, vchar100_val )         \
-                                     values (now(), %f, %d, %u, %ld, %u ,                            \
+                                     values (now(), %f, %d, %u, %d, %u ,                            \
                                      %d, %d, %u, true, \'%s\', %f, \'%s\', %d, \'%s\' )",                            \
-                                     100.0 + i, -i, i, -1000000-i, 10000000 + i, \
+                                     100.0 + i, -i, i, -10000000-i, 10000000 + i, \
                                      i, -i, i, "test",  100.0 + i, "binary", i, "vchartest");
     CHK1(exec_sql, sql, 0);
     sql[0] = '\0';
     sprintf(sql, "insert into tytb2 (ts, double_val, int_val, unint_val, bigint_val, unbigint_val,      \
                                      unsmallint_val,  tinyint_val, untinyint_val, bool_val, nchar100_val, \
                                      float_val, binary_val, smallint_val, vchar100_val )         \
-                                     values (now(), %f, %d, %u, %ld, %u ,                            \
+                                     values (now(), %f, %d, %u, %d, %u ,                            \
                                      %d, %d, %u, true, \'%s\', %f, \'%s\', %d, \'%s\' )", \
-                                     100.0 + i, -i, i, -1000000 - i, 10000000 + i, \
+                                     100.0 + i, -i, i, -10000000 - i, 10000000 + i, \
                                      i, -i, i, "test", 100.0 + i, "binary", i, "vchartest");
     CHK1(exec_sql, sql, 0);
     sql[0] = '\0';
     sprintf(sql, "insert into tytb3 (ts, double_val, int_val, unint_val, bigint_val, unbigint_val,      \
                                      unsmallint_val,  tinyint_val, untinyint_val, bool_val, nchar100_val, \
                                      float_val, binary_val, smallint_val, vchar100_val )         \
-                                     values (now(), %f, %d, %u, %ld, %u ,                            \
+                                     values (now(), %f, %d, %u, %d, %u ,                            \
                                      %d, %d, %u, true, \'%s\', %f, \'%s\', %d, \'%s\' )", \
-                                     100.0 + i, -i, i, -1000000 - i, 10000000 + i, \
+                                     100.0 + i, -i, i, -10000000 - i, 10000000 + i, \
                                      i, -i, i, "test", 100.0 + i, "binary", i, "vchartest");
     CHK1(exec_sql, sql, 0);
     tsleep(2);
@@ -1766,9 +1767,6 @@ static double case_18_helper(int64_t current_10ms, int mode) {
   SQLLEN  nchar_ind[ARRAY_SIZE] = { 0 };
   int64_t i64_arr[ARRAY_SIZE] = { 0 };
   SQLLEN  i64_ind[ARRAY_SIZE] = { 0 };
-
-  // hard code for position of each data source
-  int param_len[] = { 3, 4, 4 };
 
   const param_t params[4] = {
       {SQL_PARAM_INPUT,  SQL_C_SBIGINT,  SQL_TYPE_TIMESTAMP,  23,       3,          ts_arr,           0,   ts_ind},
@@ -1890,20 +1888,20 @@ static double case_18_helper(int64_t current_10ms, int mode) {
       clock_t t1_1 = clock();
       const char* sql = "insert into tx2 (ts,vname,wname,bi) values (?,?,?,?)";
       int code = taos_stmt_prepare(stmt, sql, 0);
-      //checkErrorCode(stmt, code, "failed to execute taos_stmt_prepare");
+      checkErrorCode(stmt, code, "failed to execute taos_stmt_prepare");
 
       code = taos_stmt_bind_param_batch(stmt, params); // bind batch
-      //checkErrorCode(stmt, code, "failed to execute taos_stmt_bind_param_batch");
+      checkErrorCode(stmt, code, "failed to execute taos_stmt_bind_param_batch");
       code = taos_stmt_add_batch(stmt);  // add batch
-      //checkErrorCode(stmt, code, "failed to execute taos_stmt_add_batch");
+      checkErrorCode(stmt, code, "failed to execute taos_stmt_add_batch");
       // execute
       code = taos_stmt_execute(stmt);
-      //checkErrorCode(stmt, code, "failed to execute taos_stmt_execute");
+      checkErrorCode(stmt, code, "failed to execute taos_stmt_execute");
 
       clock_t t1_2 = clock();
       elapsed_time = (double)(t1_2 - t1_1) / CLOCKS_PER_SEC;
       int affectedRows = taos_stmt_affected_rows(stmt);
-      // printf("successfully inserted %d rows\n", affectedRows);
+      D("successfully inserted %d rows", affectedRows);
     }
   }
 
@@ -2069,6 +2067,7 @@ static int run(int argc, char* argv[]) {
   if (isTestCase(argc, argv, "case_17", default_supported)) CHK0(case_17, 0);
 
   if (isTestCase(argc, argv, "db_test", default_unsupported)) CHK0(db_test, 0);
+    if (isTestCase(argc, argv, "case_3_1", default_unsupported)) CHK0(case_3_1, 0);
   if (isTestCase(argc, argv, "case_18_2", default_unsupported)) CHK0(case_18_2, 0);
   if (isTestCase(argc, argv, "case_18_1", default_unsupported)) CHK0(case_18_1, 0);
 
