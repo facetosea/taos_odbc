@@ -136,6 +136,7 @@ data_source_case* link_info;
 #define MAX_TABLE_NUMBER 100
 #define MAX_TABLE_NAME_LEN 128
 #define test_db "meter"
+#define test_db1 "meter1"
 
 #define count_10 10
 #define count_100 100
@@ -341,7 +342,20 @@ static int create_database(char* db) {
   memset(sql, 0, sizeof(sql));
   strcat(sql, "create database if not exists ");
   strcat(sql, db);
-  strcat(sql, " precision 'us'");
+  CHK1(exec_sql, sql, 0);
+  X("create database %s finished", db);
+  return 0;
+}
+
+static int create_database_with_precision(char* db, char* precision) {
+  if (is_sql_server_test()) return 0;
+  char sql[128];
+  memset(sql, 0, sizeof(sql));
+  strcat(sql, "create database if not exists ");
+  strcat(sql, db);
+  if (precision != NULL) {
+    sprintf(sql, "%s precision '%s'", sql, precision);
+  }
   CHK1(exec_sql, sql, 0);
   X("create database %s finished", db);
   return 0;
@@ -516,21 +530,21 @@ static int show_table_data(char* table_name) {
   SQLCHAR sql[1024];
   SQLSMALLINT numberOfColumns;
   sprintf((char *)sql, "SELECT * FROM %s", table_name);
-  CALL_SQLExecDirect(hstmt, sql, SQL_NTS);
-  CALL_SQLNumResultCols(hstmt, &numberOfColumns);
+  SQLExecDirect(hstmt, sql, SQL_NTS);
+  SQLNumResultCols(hstmt, &numberOfColumns);
 
   int row = 0;
   SQLCHAR columnData[256];
   SQLLEN indicator;
-  while (CALL_SQLFetch(hstmt) == SQL_SUCCESS) {
+  while (SQLFetch(hstmt) == SQL_SUCCESS) {
     row++;
     for (int i = 1; i <= numberOfColumns; i++) {
       CALL_SQLGetData(hstmt, i, SQL_C_CHAR, columnData, sizeof(columnData), &indicator);
       if (indicator == SQL_NULL_DATA) {
-        X("Row:%d Column %d: NULL", row, i);
+        D("Row:%d Column %d: NULL", row, i);
       }
       else {
-        X("Row:%d Column %d: %s", row, i, columnData);
+        D("Row:%d Column %d: %s", row, i, columnData);
       }
     }
   }
@@ -1260,7 +1274,7 @@ static int case_3(void) {
 
   double cost = 0;
   time_t current_time = time(NULL);
-
+  clock_t t1 = clock();
   for (int num = 0; num < count_1000; num++) {
     sql[0] = '\0';
     sprintf(sql, "insert into t_table (ts, double_val, int_val) values ");
@@ -1283,7 +1297,8 @@ static int case_3(void) {
     D("SQLExecDirect, cost time : % f seconds", elapsed_time);
     cost += elapsed_time;
   }
-
+  clock_t t2 = clock();
+  cost = (double)(t2 - t1) / CLOCKS_PER_SEC;;
   X("Write %d * %d rows data, cost time : % f seconds", count_1000, count_1000, cost);
 
   clock_t t2_1 = clock();
@@ -1433,7 +1448,7 @@ static int case_3_1(void) {
 
   double cost = 0;
   time_t current_time = time(NULL);
-
+  clock_t t1 = clock();
   for (int num = 0; num < count_1000; num++) {
     sql[0] = '\0';
     sprintf(sql, "insert into t_table2 (ts, double_val, int_val) values ");
@@ -1454,6 +1469,8 @@ static int case_3_1(void) {
     D("taos_query for write, cost time : % f seconds",  elapsed_time);
     cost += elapsed_time;
   }
+  clock_t t2 = clock();
+  cost = (double)(t2 - t1) / CLOCKS_PER_SEC;;
   X("Write %d * %d rows data, cost time : % f seconds", count_1000, count_1000, cost);
 
   char* select_sql = "select * from `t_table2`;";
@@ -1910,7 +1927,9 @@ static double case_18_helper(int64_t current_10ms, int mode) {
 
 static int case_18_2() {
   CHK0(create_sql_connect, 0);
-  CHK1(use_db, test_db, 0);
+  drop_database(test_db1);
+  create_database_with_precision(test_db1, "us");
+  CHK1(use_db, test_db1, 0);
   char sql[1024];
   sql[0] = '\0';
   strcpy(sql, "drop table if exists tx2;");
@@ -1935,7 +1954,9 @@ static int case_18_2() {
 
 static int case_18_1() {
   CHK0(create_sql_connect, 0);
-  CHK1(use_db, test_db, 0);
+  drop_database(test_db1);
+  create_database_with_precision(test_db1, "us");
+  CHK1(use_db, test_db1, 0);
   char sql[1024];
   sql[0] = '\0';
   strcpy(sql, "drop table if exists tx1;");
@@ -2067,7 +2088,7 @@ static int run(int argc, char* argv[]) {
   if (isTestCase(argc, argv, "case_17", default_supported)) CHK0(case_17, 0);
 
   if (isTestCase(argc, argv, "db_test", default_unsupported)) CHK0(db_test, 0);
-    if (isTestCase(argc, argv, "case_3_1", default_unsupported)) CHK0(case_3_1, 0);
+  if (isTestCase(argc, argv, "case_3_1", default_unsupported)) CHK0(case_3_1, 0);
   if (isTestCase(argc, argv, "case_18_2", default_unsupported)) CHK0(case_18_2, 0);
   if (isTestCase(argc, argv, "case_18_1", default_unsupported)) CHK0(case_18_1, 0);
 
